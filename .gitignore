@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+processed_voices/
+training/
+voices/
+*.wav
+*.mp3
+*.ogg
+*.flac

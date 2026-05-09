@@ -53,11 +53,12 @@ PRETRAINED = GPTSOVITS_DIR / "GPT_SoVITS/pretrained_models"
 BERT_DIR = str(PRETRAINED / "chinese-roberta-wwm-ext-large")
 HUBERT_DIR = str(PRETRAINED / "chinese-hubert-base")
 SV_PATH = str(PRETRAINED / "sv/pretrained_eres2netv2w24s4ep4.ckpt")
-PRETRAINED_S2G = str(PRETRAINED / "gsv-v2final-pretrained/s2G2333k.pth")
-PRETRAINED_S2D = str(PRETRAINED / "gsv-v2final-pretrained/s2D2333k.pth")
-PRETRAINED_S1 = str(PRETRAINED / "gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt")
+PRETRAINED_S2G = str(PRETRAINED / "v2Pro/s2Gv2ProPlus.pth")
+PRETRAINED_S2D = str(PRETRAINED / "v2Pro/s2Dv2ProPlus.pth")
+PRETRAINED_S1 = str(PRETRAINED / "s1v3.ckpt")
 
-VERSION = "v2"
+VERSION = "v2ProPlus"
+S2_CONFIG = {"v2Pro": "s2v2Pro.json", "v2ProPlus": "s2v2ProPlus.json"}.get(VERSION, "s2.json")
 EXP_ROOT = str(GPTSOVITS_DIR / "logs")
 
 
@@ -136,9 +137,24 @@ def step_asr(wav_dir: Path, transcript_path: Path, language: str) -> None:
         log.error("ASR produced no .list files in %s", asr_output)
         sys.exit(1)
 
+    # GPT-SoVITS only supports zh/en/ja/ko for training.
+    # Map unsupported language codes to "en" so preprocessing doesn't reject them.
+    SUPPORTED_TRAIN_LANGS = {"zh", "en", "ja", "ko"}
+    fallback = language.lower() if language.lower() in SUPPORTED_TRAIN_LANGS else "en"
+    if fallback != language.lower():
+        log.warning("  Language '%s' not supported for training — using 'en' in transcript", language)
+
     lines = []
     for lf in sorted(list_files):
-        lines += lf.read_text(encoding="utf-8").splitlines()
+        for line in lf.read_text(encoding="utf-8").splitlines():
+            parts = line.split("|")
+            # Replace language fields at index 1 and 2 (fasterwhisper_asr writes
+            # the language code into both positions; 1-get-text.py reads index 2).
+            for i in (1, 2):
+                if len(parts) > i and parts[i].strip().lower() not in SUPPORTED_TRAIN_LANGS:
+                    parts[i] = fallback
+            line = "|".join(parts)
+            lines.append(line)
 
     transcript_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log.info("  transcripts → %s  (%d lines)", transcript_path, len(lines))
@@ -190,6 +206,23 @@ def step_get_hubert(exp_name: str, transcript_path: Path, wav_dir: Path) -> None
     _run(f'"{PYTHON}" -s GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py', env=env)
 
 
+def step_get_sv(exp_name: str, transcript_path: Path, wav_dir: Path) -> None:
+    log.info("[3b/5] Extracting speaker verification embeddings (v2ProPlus) …")
+    env = {
+        "inp_text": str(transcript_path),
+        "inp_wav_dir": str(wav_dir),
+        "exp_name": exp_name,
+        "opt_dir": f"{EXP_ROOT}/{exp_name}",
+        "sv_path": SV_PATH,
+        "is_half": "True",
+        "i_part": "0",
+        "all_parts": "1",
+        "_CUDA_VISIBLE_DEVICES": "0",
+        "PYTHONPATH": f"{GPTSOVITS_DIR}:{GPTSOVITS_DIR}/GPT_SoVITS",
+    }
+    _run(f'"{PYTHON}" -s GPT_SoVITS/prepare_datasets/2-get-sv.py', env=env)
+
+
 def step_get_semantic(exp_name: str, transcript_path: Path) -> None:
     log.info("[4/5] Extracting semantic tokens …")
     opt_dir = f"{EXP_ROOT}/{exp_name}"
@@ -198,7 +231,7 @@ def step_get_semantic(exp_name: str, transcript_path: Path) -> None:
         "exp_name": exp_name,
         "opt_dir": opt_dir,
         "pretrained_s2G": PRETRAINED_S2G,
-        "s2config_path": str(GPTSOVITS_DIR / "GPT_SoVITS/configs/s2.json"),
+        "s2config_path": str(GPTSOVITS_DIR / f"GPT_SoVITS/configs/{S2_CONFIG}"),
         "is_half": "True",
         "i_part": "0",
         "all_parts": "1",
@@ -223,7 +256,7 @@ def step_train_sovits(exp_name: str, batch_size: int, epochs: int, save_every: i
     os.makedirs(f"{exp_dir}/logs_s2_{VERSION}", exist_ok=True)
     os.makedirs(str(GPTSOVITS_DIR / "SoVITS_weights_v2"), exist_ok=True)
 
-    with open(GPTSOVITS_DIR / "GPT_SoVITS/configs/s2.json") as f:
+    with open(GPTSOVITS_DIR / f"GPT_SoVITS/configs/{S2_CONFIG}") as f:
         cfg = json.load(f)
 
     cfg["train"]["batch_size"] = batch_size
@@ -262,7 +295,19 @@ def step_train_sovits(exp_name: str, batch_size: int, epochs: int, save_every: i
         opt["config"] = hps
         opt["info"] = f"{exp_name}_converted"
         out = GPTSOVITS_DIR / f"SoVITS_weights_v2/{exp_name}.pth"
-        torch.save(opt, str(out))
+        # Write with version header so GPT-SoVITS detects the architecture correctly
+        version_header = {
+            "v1": b"00", "v2": b"01", "v3": b"02", "v4": b"04",
+            "v2Pro": b"05", "v2ProPlus": b"06",
+        }.get(VERSION, b"01")
+        import io as _io
+        buf = _io.BytesIO()
+        torch.save(opt, buf)
+        buf.seek(0)
+        raw_bytes = buf.read()
+        assert raw_bytes[:2] == b"PK"
+        with open(str(out), "wb") as f:
+            f.write(version_header + raw_bytes[2:])
         log.info("  SoVITS weight → %s", out)
 
 
@@ -355,6 +400,8 @@ def main() -> None:
 
         step_get_text(exp_name, transcript_path, wav_dir)
         step_get_hubert(exp_name, transcript_path, wav_dir)
+        if VERSION in {"v2Pro", "v2ProPlus"}:
+            step_get_sv(exp_name, transcript_path, wav_dir)
         step_get_semantic(exp_name, transcript_path)
     else:
         log.info("[1–4/5] Skipping preprocessing.")
@@ -369,11 +416,12 @@ def main() -> None:
     log.info("  %s/SoVITS_weights_v2/%s.pth", GPTSOVITS_DIR, exp_name)
     log.info("  %s/GPT_weights_v2/%s-e*.ckpt", GPTSOVITS_DIR, exp_name)
     log.info("")
-    log.info("To use the new voice, update TTSConfig.ref_audio_path in config.py")
-    log.info("and start the TTS server with:")
-    log.info("  cd ~/GPT-SoVITS && .venv/bin/python api_v2.py -a 0.0.0.0 -p 9880 \\")
-    log.info("    -s SoVITS_weights_v2/%s.pth \\", exp_name)
-    log.info("    -g GPT_weights_v2/%s-e*.ckpt", exp_name)
+    log.info("To use the new voice:")
+    log.info("  1. Edit ~/GPT-SoVITS/GPT_SoVITS/configs/tts_infer.yaml  custom section:")
+    log.info("       vits_weights_path: SoVITS_weights_v2/%s.pth", exp_name)
+    log.info("       t2s_weights_path:  GPT_weights_v2/%s-e*.ckpt", exp_name)
+    log.info("  2. Start the server:  make tts-server")
+    log.info("  3. Update TTSConfig.ref_audio_path in config.py")
 
 
 if __name__ == "__main__":

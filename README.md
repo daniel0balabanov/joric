@@ -46,18 +46,20 @@ Push-to-talk: press **Enter** to start recording, **Enter** again to stop.
 
 ## LLM backend
 
-The backend is selected automatically at startup:
+The backend is selected automatically at startup (priority order):
 
 | Condition | Backend |
 |---|---|
+| `GOOGLE_API_KEY` is set | Gemini (`gemini-2.0-flash`) |
 | `ANTHROPIC_API_KEY` is set | Claude (`claude-sonnet-4-6`) |
-| Not set (default) | Ollama `gemma3:12b` at `localhost:11434` |
+| Neither set (default) | Ollama `gemma3:5b` at `localhost:11434` |
 
 Copy `.env.example` → `.env` and set your key:
 
 ```bash
 cp .env.example .env
 # edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+# or GOOGLE_API_KEY=... for Gemini
 ```
 
 ## GPT-SoVITS TTS
@@ -115,10 +117,32 @@ make train-voice VOICE_DIR=./voices/myvoice VOICE_NAME=myvoice VOICE_LANG=en
 python train_voice.py --name myvoice --voice-dir ./voices/myvoice --language en
 ```
 
-Options:
-- `--skip-asr` — reuse existing transcripts (if ASR already ran)
-- `--sovits-epochs N` — default 8 (enough for small datasets)
-- `--gpt-epochs N` — default 15
-- `--batch-size N` — reduce to 2 if VRAM OOM
+### Training pipeline
+
+`train_voice.py` runs five stages inside `~/GPT-SoVITS`:
+
+| Stage | Script | Output |
+|---|---|---|
+| 0 — Convert | ffmpeg | `processed_voices/<name>/wav32k/*.wav` (32kHz mono) |
+| 1 — ASR | faster-whisper large-v3 | `<name>_list.txt` (path\|lang\|text per clip) |
+| 2 — BERT | `1-get-text.py` | `2-name2text.txt` (phoneme features) |
+| 3 — HuBERT | `2-get-hubert-wav32k.py` | HuBERT + wav32k acoustic features |
+| 3b — SV | `2-get-sv.py` | Speaker-verification embeddings (v2ProPlus only) |
+| 4 — Semantic | `3-get-semantic.py` | `6-name2semantic.tsv` (audio tokens) |
+| 5a — SoVITS | `s2_train.py` | `SoVITS_weights_v2/<name>.pth` (voice timbre) |
+| 5b — GPT | `s1_train.py` | `GPT_weights_v2/<name>-e*.ckpt` (prosody/rhythm) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--sovits-epochs N` | 8 | SoVITS decoder training epochs |
+| `--gpt-epochs N` | 15 | GPT model training epochs |
+| `--batch-size N` | 4 | Reduce to 2 if VRAM OOM |
+| `--save-every N` | 4 | Save checkpoint every N epochs |
+| `--skip-asr` | — | Reuse existing transcript file |
+| `--skip-preprocess` | — | Skip all preprocessing (stages 1–4) |
+| `--skip-sovits` | — | Skip SoVITS training |
+| `--skip-gpt` | — | Skip GPT training |
 
 Weights are saved to `~/GPT-SoVITS/SoVITS_weights_v2/` and `~/GPT-SoVITS/GPT_weights_v2/`.

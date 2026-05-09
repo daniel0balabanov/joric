@@ -47,12 +47,29 @@ class Transcriber:
         if audio is None or len(audio) == 0:
             return ""
 
-        segments, info = self._model.transcribe(
-            audio,
-            language=self._cfg.language,
-            beam_size=5,
-            vad_filter=True,
-        )
-        text = " ".join(seg.text for seg in segments).strip()
-        log.debug("Transcribed [lang=%s, prob=%.2f]: %s", info.language, info.language_probability, text)
-        return text
+        try:
+            segments, info = self._model.transcribe(
+                audio,
+                language=self._cfg.language,
+                beam_size=self._cfg.beam_size,
+                vad_filter=True,
+            )
+            text = " ".join(seg.text for seg in segments).strip()
+            log.debug("Transcribed [lang=%s, prob=%.2f]: %s", info.language, info.language_probability, text)
+            return text
+        except RuntimeError as exc:
+            if "libcublas" in str(exc) or "CUDA" in str(exc):
+                log.warning("CUDA inference failed (%s), reloading on cpu/int8", exc)
+                self._model = None
+                self._cfg.device = "cpu"
+                self._cfg.compute_type = "int8"
+                self._load()
+                segments, info = self._model.transcribe(
+                    audio,
+                    language=self._cfg.language,
+                    beam_size=self._cfg.beam_size,
+                    vad_filter=True,
+                )
+                text = " ".join(seg.text for seg in segments).strip()
+                return text
+            raise

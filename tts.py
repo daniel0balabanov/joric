@@ -6,6 +6,7 @@ Requires a running GPT-SoVITS v2 inference server:
 
 import io
 import logging
+import re
 
 import numpy as np
 
@@ -20,6 +21,11 @@ class TTS:
     def __init__(self, cfg: TTSConfig) -> None:
         self._cfg = cfg
 
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """Convert ALL CAPS words to lowercase so TTS reads them as words, not acronyms."""
+        return re.sub(r'\b([A-Z]{2,})\b', lambda m: m.group(1).lower(), text)
+
     def synthesize(self, text: str) -> tuple[np.ndarray, int] | None:
         """POST text to /tts. Returns (audio_np, sample_rate) or None on error."""
         if not self._cfg.enabled:
@@ -33,13 +39,17 @@ class TTS:
             import soundfile as sf
 
             payload = {
-                "text": text,
+                "text": self._normalize(text),
                 "text_lang": self._cfg.text_lang,
                 "prompt_lang": self._cfg.prompt_lang,
                 "prompt_text": self._cfg.prompt_text,
                 "ref_audio_path": self._cfg.ref_audio_path,
                 "media_type": "wav",
                 "streaming_mode": False,
+                "speed_factor": self._cfg.speed_factor,
+                "temperature": self._cfg.temperature,
+                "top_p": self._cfg.top_p,
+                "top_k": self._cfg.top_k,
             }
             resp = httpx.post(f"{self._cfg.api_url}/tts", json=payload, timeout=60.0)
             if not resp.is_success:
@@ -60,7 +70,7 @@ class TTS:
         audio_np, sample_rate = result
         try:
             import sounddevice as sd
-            sd.play(audio_np, samplerate=sample_rate)
+            sd.play(audio_np, samplerate=sample_rate, device=self._cfg.output_device)
             sd.wait()
         except Exception as exc:
             log.warning("TTS playback error: %s", exc)
