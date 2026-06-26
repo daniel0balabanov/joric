@@ -88,6 +88,7 @@ class LLMClient:
                 "num_predict": self._cfg.max_tokens,
                 "num_gpu": self._cfg.ollama_num_gpu,
             },
+            "think": self._cfg.ollama_think,
         }
         resp = httpx.post(
             f"{base}/api/chat",

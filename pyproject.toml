@@ -15,12 +15,18 @@ dependencies = [
     "soundfile>=0.12",
     "numpy",
     "python-dotenv",
+    "pydub>=0.25",
 ]
 
 [project.optional-dependencies]
 train = [
     "torch",
     "pyyaml",
+]
+omnivoice = [
+    "omnivoice",
+    "torch",
+    "torchaudio",
 ]
 
 [tool.setuptools]

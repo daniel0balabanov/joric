@@ -4,7 +4,8 @@ GPT_SOVITS    := $(HOME)/GPT-SoVITS
 TTS_PORT      := 9880
 
 NVIDIA_LIB    := $(shell .venv/bin/python -c "import site,os; print(site.getsitepackages()[0]+'/nvidia/cublas/lib')" 2>/dev/null)
-export LD_LIBRARY_PATH := $(NVIDIA_LIB):$(LD_LIBRARY_PATH)
+CUDA13_LIB    := /usr/local/lib/ollama/cuda_v13
+export LD_LIBRARY_PATH := $(NVIDIA_LIB):$(CUDA13_LIB):$(LD_LIBRARY_PATH)
 
 # Run args (override on command line)
 MODEL         ?=
@@ -15,7 +16,7 @@ VOICE_NAME    ?= myvoice
 VOICE_LANG    ?= en
 VOICE_BATCH   ?= 4
 
-.PHONY: venv run tts-server train-voice help
+.PHONY: venv run tts-server train-voice ollama-cpu ollama-gpu1 help
 
 help:
 	@echo "Targets:"
@@ -37,8 +38,16 @@ venv:
 run:
 	$(PYTHON) main.py $(if $(MODEL),--model $(MODEL),) $(ARGS)
 
+ollama-gpu1:
+	@echo "Restarting Ollama pinned to GPU 1 (RTX 5070, leaves GPU 0 for TTS)..."
+	@pkill -x ollama 2>/dev/null || true
+	@sleep 1
+	CUDA_VISIBLE_DEVICES=1 ollama serve &
+	@sleep 2
+	@echo "Ollama running on GPU 1."
+
 ollama-cpu:
-	@echo "Restarting Ollama in CPU-only mode (frees GPU for TTS)..."
+	@echo "Restarting Ollama in CPU-only mode (frees both GPUs for TTS)..."
 	@pkill -x ollama 2>/dev/null || true
 	@sleep 1
 	OLLAMA_NUM_GPU=0 ollama serve &

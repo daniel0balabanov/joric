@@ -232,7 +232,7 @@ def step_get_semantic(exp_name: str, transcript_path: Path) -> None:
         "opt_dir": opt_dir,
         "pretrained_s2G": PRETRAINED_S2G,
         "s2config_path": str(GPTSOVITS_DIR / f"GPT_SoVITS/configs/{S2_CONFIG}"),
-        "is_half": "True",
+        "is_half": "False",  # float16 triggers CUBLAS_STATUS_INVALID_VALUE on some GPUs
         "i_part": "0",
         "all_parts": "1",
         "_CUDA_VISIBLE_DEVICES": "0",

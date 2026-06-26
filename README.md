@@ -74,21 +74,12 @@ make tts-server
 cd ~/GPT-SoVITS && .venv/bin/python api_v2.py -a 0.0.0.0 -p 9880
 ```
 
-To use a custom trained voice, edit `~/GPT-SoVITS/GPT_SoVITS/configs/tts_infer.yaml`
-`custom` section before starting the server:
+To use a custom trained voice, pass weight paths:
 
-```yaml
-custom:
-  vits_weights_path: SoVITS_weights_v2/myvoice.pth
-  t2s_weights_path: GPT_weights_v2/myvoice-e12.ckpt
-  version: v2ProPlus
-  device: cuda
-  is_half: true
-```
-
-Then start normally:
 ```bash
-make tts-server
+cd ~/GPT-SoVITS && .venv/bin/python api_v2.py -a 0.0.0.0 -p 9880 \
+  -s SoVITS_weights_v2/myvoice.pth \
+  -g GPT_weights_v2/myvoice-e12.ckpt
 ```
 
 Then update `TTSConfig.ref_audio_path` and `TTSConfig.prompt_text` in `config.py`
@@ -114,7 +105,7 @@ Place voice clips (WAV/OGG/MP3) in a directory, then:
 ```bash
 make train-voice VOICE_DIR=./voices/myvoice VOICE_NAME=myvoice VOICE_LANG=en
 # or directly:
-python train_voice.py --name myvoice --voice-dir ./voices/myvoice --language en
+python train_voice.py --name myvoice --voice-dir ./training/samples/... --language en
 ```
 
 ### Training pipeline

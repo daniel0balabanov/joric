@@ -90,6 +90,13 @@ def setup_menu(cfg: AppConfig) -> None:
     idx = _pick("Persona:", persona_names, default=default_persona)
     cfg.llm.system_prompt = PERSONAS[persona_names[idx]]
 
+    # TTS backend
+    if cfg.tts.enabled:
+        tts_backends = ["gptsovits", "omnivoice"]
+        default_tts = tts_backends.index(cfg.tts.backend) if cfg.tts.backend in tts_backends else 0
+        idx = _pick("TTS backend:", tts_backends, default=default_tts)
+        cfg.tts.backend = tts_backends[idx]
+
     # TTS voice (only if multiple profiles are defined)
     if cfg.tts.enabled and len(VOICE_PROFILES) > 1:
         voice_names = list(VOICE_PROFILES.keys())
@@ -120,7 +127,11 @@ def main() -> None:
     print("joric — voice chat")
     print(f"  STT : Whisper {cfg.stt.model_size}")
     print(f"  LLM : {cfg.llm.backend}  ({cfg.llm._active_model if hasattr(cfg.llm, '_active_model') else ''})")
-    print(f"  TTS : {'GPT-SoVITS @ ' + cfg.tts.api_url if cfg.tts.enabled else 'disabled'}")
+    if cfg.tts.enabled:
+        tts_label = f"omnivoice ({cfg.tts.omnivoice_model})" if cfg.tts.backend == "omnivoice" else f"gptsovits @ {cfg.tts.api_url}"
+    else:
+        tts_label = "disabled"
+    print(f"  TTS : {tts_label}")
     print("  Type 'quit' or press Ctrl-C to exit.\n")
 
     print("Loading Whisper model...", end=" ", flush=True)
